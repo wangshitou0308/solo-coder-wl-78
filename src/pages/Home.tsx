@@ -25,6 +25,14 @@ export default function HomePage() {
     initApp();
   }, [initApp]);
 
+  const handleFeatureClick = (targetPage: string) => {
+    if (projects.length > 0) {
+      navigate(`/project/${projects[0].id}/${targetPage}`);
+    } else {
+      setShowCreate(true);
+    }
+  };
+
   const handleCreate = async () => {
     if (!form.name.trim()) return;
     const project = await createProject({
@@ -84,19 +92,23 @@ export default function HomePage() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
           {[
-            { icon: Users, title: '多人协作', desc: '邀请家人朋友，分角色权限协同打包', color: 'from-sky-500 to-cyan-500' },
-            { icon: Sparkles, title: 'AI智能识别', desc: 'TensorFlow.js拍照自动识别物品类别', color: 'from-violet-500 to-purple-500' },
-            { icon: Package, title: '三维装箱', desc: '算法优化空间利用，计算装载优先级', color: 'from-primary-500 to-emerald-500' },
+            { icon: Users, title: '多人协作', desc: '邀请家人朋友，分角色权限协同打包', color: 'from-sky-500 to-cyan-500', target: 'members' },
+            { icon: Sparkles, title: 'AI智能识别', desc: 'TensorFlow.js拍照自动识别物品类别', color: 'from-violet-500 to-purple-500', target: 'scan' },
+            { icon: Package, title: '三维装箱', desc: '算法优化空间利用，计算装载优先级', color: 'from-primary-500 to-emerald-500', target: 'packing' },
           ].map((f, i) => (
             <div
               key={i}
-              className="card-hover p-5 relative overflow-hidden"
+              onClick={() => handleFeatureClick(f.target)}
+              className="card-hover p-5 relative overflow-hidden cursor-pointer"
               style={{ animation: `slideUp 0.5s ${i * 0.1}s backwards` }}
             >
               <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${f.color} flex items-center justify-center mb-4 shadow-md`}>
                 <f.icon className="w-5 h-5 text-white" />
               </div>
-              <h3 className="font-display font-bold text-base text-slate-800 mb-1">{f.title}</h3>
+              <h3 className="font-display font-bold text-base text-slate-800 mb-1 flex items-center gap-2">
+                {f.title}
+                <ArrowRight className="w-4 h-4 text-primary-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </h3>
               <p className="text-sm text-slate-500 leading-relaxed">{f.desc}</p>
             </div>
           ))}

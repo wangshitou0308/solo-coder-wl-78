@@ -50,17 +50,17 @@ export default function Dashboard() {
     <div className="space-y-6">
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { icon: Package, label: '纸箱总数', value: stats.totalBoxes, sub: `${stats.packedBoxes} 已封箱`, color: 'primary', subColor: stats.packedBoxes === stats.totalBoxes ? 'text-success' : 'text-primary-600' },
-          { icon: Boxes, label: '物品总数', value: stats.totalItems, sub: `${rooms.length} 个房间`, color: 'violet', subColor: 'text-violet-600' },
-          { icon: Scale, label: '总重量', value: `${stats.totalWeight}`, sub: `公斤 / ${project?.max_weight || 0}kg`, unit: 'kg', color: 'amber', subColor: 'text-amber-600' },
-          { icon: Gem, label: '易碎品', value: stats.fragileCount, sub: `价值 ¥${stats.totalValue.toLocaleString()}`, color: 'rose', subColor: 'text-rose-600' },
+          { icon: Package, label: '纸箱总数', value: stats.totalBoxes, sub: `${stats.packedBoxes} 已封箱`, bgClass: 'bg-primary-50', textClass: 'text-primary-600', subColorClass: stats.packedBoxes === stats.totalBoxes ? 'text-success' : 'text-primary-600' },
+          { icon: Boxes, label: '物品总数', value: stats.totalItems, sub: `${rooms.length} 个房间`, bgClass: 'bg-violet-50', textClass: 'text-violet-600', subColorClass: 'text-violet-600' },
+          { icon: Scale, label: '总重量', value: `${stats.totalWeight}`, sub: `公斤 / ${project?.max_weight || 0}kg`, unit: 'kg', bgClass: 'bg-amber-50', textClass: 'text-amber-600', subColorClass: 'text-amber-600' },
+          { icon: Gem, label: '易碎品', value: stats.fragileCount, sub: `价值 ¥${stats.totalValue.toLocaleString()}`, bgClass: 'bg-rose-50', textClass: 'text-rose-600', subColorClass: 'text-rose-600' },
         ].map((s, i) => (
           <div key={i} className="stat-card animate-slide-up" style={{ animationDelay: `${i * 0.06}s` }}>
             <div className="flex items-start justify-between mb-3">
-              <div className={`w-10 h-10 rounded-xl bg-${s.color}-50 text-${s.color}-600 flex items-center justify-center`}>
+              <div className={`w-10 h-10 rounded-xl ${s.bgClass} ${s.textClass} flex items-center justify-center`}>
                 <s.icon className="w-5 h-5" />
               </div>
-              <TrendingUp className={`w-4 h-4 ${s.subColor}`} />
+              <TrendingUp className={`w-4 h-4 ${s.subColorClass}`} />
             </div>
             <div className="font-display font-bold text-2xl lg:text-3xl text-slate-900 leading-none">
               {s.value}{s.unit ? <span className="text-base font-medium text-slate-400 ml-0.5">{s.unit}</span> : null}
@@ -68,7 +68,7 @@ export default function Dashboard() {
             <div className="text-xs text-slate-500 mt-1.5 flex items-center gap-1.5">
               {s.label}
               <span className="text-slate-300">·</span>
-              <span className={s.subColor}>{s.sub}</span>
+              <span className={s.subColorClass}>{s.sub}</span>
             </div>
           </div>
         ))}
@@ -153,17 +153,21 @@ export default function Dashboard() {
               </div>
             ) : (
               alerts.map((a, idx) => {
-                const sev = a.severity === 'high' ? 'rose' : a.severity === 'medium' ? 'amber' : 'sky';
-                const Icon = a.severity === 'high' ? XCircle : AlertCircle;
+                const sevConfig = a.severity === 'high'
+                  ? { bgBar: 'bg-rose-500', bgBox: 'bg-rose-50', text: 'text-rose-600', Icon: XCircle }
+                  : a.severity === 'medium'
+                  ? { bgBar: 'bg-amber-500', bgBox: 'bg-amber-50', text: 'text-amber-600', Icon: AlertCircle }
+                  : { bgBar: 'bg-sky-500', bgBox: 'bg-sky-50', text: 'text-sky-600', Icon: AlertCircle };
+                const Icon = sevConfig.Icon;
                 return (
                   <div
                     key={a.id}
                     className="group relative rounded-xl border border-slate-200 p-3.5 hover:border-slate-300 hover:shadow-sm transition animate-slide-up"
                     style={{ animationDelay: `${idx * 0.05}s` }}
                   >
-                    <div className={`absolute left-0 top-3.5 bottom-3.5 w-1 rounded-r-full bg-${sev}-500`} />
+                    <div className={`absolute left-0 top-3.5 bottom-3.5 w-1 rounded-r-full ${sevConfig.bgBar}`} />
                     <div className="flex items-start gap-3 pl-2">
-                      <div className={`w-8 h-8 shrink-0 rounded-lg bg-${sev}-50 text-${sev}-600 flex items-center justify-center`}>
+                      <div className={`w-8 h-8 shrink-0 rounded-lg ${sevConfig.bgBox} ${sevConfig.text} flex items-center justify-center`}>
                         <Icon className="w-4 h-4" />
                       </div>
                       <div className="flex-1 min-w-0">
