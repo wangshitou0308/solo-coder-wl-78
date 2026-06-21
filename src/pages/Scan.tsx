@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store';
 import {
-  ScanLine, Camera, Upload, Sparkles, Check, X, Wand2,
+  ScanLine, Camera, Upload, Sparkles, Check, Wand2,
   Package, ChevronRight, AlertCircle, RefreshCw, Search,
+  FileText, ExternalLink,
 } from 'lucide-react';
 import { runAIDetection } from '@/utils/ai';
-import type { AIPrediction, Item } from '@/types';
+import { Html5Qrcode } from 'html5-qrcode';
+import type { AIPrediction } from '@/types';
 import { ITEM_CATEGORIES } from '@/types';
 
 export default function ScanPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const boxes = useAppStore(s => s.boxes);
   const rooms = useAppStore(s => s.rooms);
   const findBoxByCode = useAppStore(s => s.findBoxByCode);
@@ -29,17 +32,30 @@ export default function ScanPage() {
   const [isFragile, setIsFragile] = useState(false);
   const [itemName, setItemName] = useState('');
   const [scannerActive, setScannerActive] = useState(false);
+  const [qrScannerActive, setQrScannerActive] = useState(false);
+  const [scannedBoxId, setScannedBoxId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const html5QrRef = useRef<Html5Qrcode | null>(null);
+  const QR_SCANNER_ID = 'html5qr-scanner';
 
   useEffect(() => {
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
+      }
+      if (html5QrRef.current) {
+        try {
+          if (html5QrRef.current.isScanning) {
+            html5QrRef.current.stop().catch(() => {});
+          }
+        } catch (e) {
+          console.warn('清理扫码器失败', e);
+        }
       }
     };
   }, []);
@@ -54,10 +70,72 @@ export default function ScanPage() {
     if (box) {
       setCurrentBox(box.id);
       setSelectedRoom(box.room_id);
+      setScannedBoxId(box.id);
       showToast(`已找到纸箱 ${box.box_code}`, true);
     } else {
       showToast('未找到该纸箱，请先创建', false);
     }
+  };
+
+  const parseQrData = (data: string): string | null => {
+    try {
+      if (data.startsWith('movplan://box/')) {
+        return data.replace('movplan://box/', '').toUpperCase();
+      }
+      if (data.startsWith('http') && data.includes('/box/')) {
+        const parts = data.split('/box/');
+        return parts[parts.length - 1].split('?')[0].toUpperCase();
+      }
+      return data.trim().toUpperCase();
+    } catch {
+      return data.trim().toUpperCase();
+    }
+  };
+
+  const startQrScanner = async () => {
+    try {
+      if (!html5QrRef.current) {
+        html5QrRef.current = new Html5Qrcode(QR_SCANNER_ID);
+      }
+      setQrScannerActive(true);
+      await html5QrRef.current.start(
+        { facingMode: 'environment' },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
+        },
+        (decodedText) => {
+          const code = parseQrData(decodedText);
+          if (code) {
+            stopQrScanner();
+            searchBox(code);
+          }
+        },
+        () => {},
+      );
+    } catch (e) {
+      console.warn('HTML5 QR 扫描启动失败，回退到手动输入', e);
+      setQrScannerActive(false);
+      showToast('摄像头扫码不可用，请手动输入箱号', false);
+    }
+  };
+
+  const stopQrScanner = async () => {
+    if (html5QrRef.current) {
+      try {
+        if (html5QrRef.current.isScanning) {
+          await html5QrRef.current.stop();
+        }
+      } catch (e) {
+        console.warn('停止扫码失败', e);
+      }
+    }
+    setQrScannerActive(false);
+  };
+
+  const openScannedBoxDetail = () => {
+    if (!scannedBoxId) return;
+    navigate(`/project/${id}/boxes`);
   };
 
   const startCamera = async () => {
@@ -197,7 +275,10 @@ export default function ScanPage() {
                   key={t.k}
                   onClick={() => {
                     setTab(t.k as 'photo' | 'scan');
-                    if (t.k !== 'scan') stopCamera();
+                    if (t.k !== 'scan') {
+                      stopCamera();
+                      stopQrScanner();
+                    }
                   }}
                   className={`px-3.5 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition ${
                     tab === t.k
@@ -214,21 +295,11 @@ export default function ScanPage() {
           {tab === 'scan' ? (
             <div className="space-y-5">
               <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-900">
-                {scannerActive ? (
-                  <>
-                    <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" playsInline muted />
-                    <div className="absolute inset-8 border-2 border-dashed border-primary-400/80 rounded-2xl pointer-events-none">
-                      <div className="absolute inset-x-4 h-1 bg-gradient-to-r from-transparent via-primary-400 to-transparent animate-scan rounded-full shadow-[0_0_20px_rgba(20,184,166,0.6)]" />
-                    </div>
-                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-3">
-                      <button onClick={capturePhoto} className="btn-accent">
-                        <Camera className="w-4 h-4" /> 拍摄
-                      </button>
-                      <button onClick={stopCamera} className="btn-secondary">
-                        停止
-                      </button>
-                    </div>
-                  </>
+                {qrScannerActive ? (
+                  <div
+                    id={QR_SCANNER_ID}
+                    className="absolute inset-0 w-full h-full [&_video]:!object-cover [&_video]:!w-full [&_video]:!h-full"
+                  />
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6">
                     <div className="w-20 h-20 rounded-3xl bg-slate-800 flex items-center justify-center mb-5 animate-float">
@@ -236,13 +307,59 @@ export default function ScanPage() {
                     </div>
                     <h3 className="text-xl font-display font-bold text-white mb-2">对准纸箱二维码</h3>
                     <p className="text-slate-400 text-sm mb-6">保持光线充足，二维码清晰可见</p>
-                    <button onClick={startCamera} className="btn-primary">
+                    <button onClick={startQrScanner} className="btn-primary">
                       <Camera className="w-4 h-4" /> 启动扫码摄像头
+                    </button>
+                  </div>
+                )}
+                {qrScannerActive && (
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
+                    <button onClick={stopQrScanner} className="btn-secondary">
+                      停止扫码
                     </button>
                   </div>
                 )}
                 <canvas ref={canvasRef} className="hidden" />
               </div>
+
+              {scannedBoxId && (() => {
+                const box = boxes.find(b => b.id === scannedBoxId);
+                const room = rooms.find(r => r.id === box?.room_id);
+                if (!box) return null;
+                return (
+                  <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-50 to-primary-50 border-2 border-emerald-200 animate-slide-up">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
+                          <Check className="w-6 h-6 text-emerald-600" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-semibold text-emerald-700 mb-0.5">✓ 扫码成功</div>
+                          <div className="font-display font-bold text-xl text-slate-900">{box.box_code}</div>
+                          <div className="text-sm text-slate-600">
+                            {room?.name || '未分配'} · {box.items_count} 件物品 · {box.weight_kg} kg
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <button
+                          onClick={openScannedBoxDetail}
+                          className="btn-primary !py-2 !text-xs flex items-center gap-1"
+                        >
+                          <FileText className="w-3.5 h-3.5" /> 查看详情
+                          <ExternalLink className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => { setCurrentBox(box.id); setSelectedRoom(box.room_id); setTab('photo'); }}
+                          className="btn-secondary !py-2 !text-xs flex items-center gap-1"
+                        >
+                          <Wand2 className="w-3.5 h-3.5" /> 添加物品到此箱
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200">
                 <label className="text-sm font-medium text-slate-700 mb-2 block flex items-center gap-1">

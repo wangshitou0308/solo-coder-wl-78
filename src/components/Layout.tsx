@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
 import { useAppStore } from '@/store';
 import {
   LayoutDashboard, Users, Package, QrCode, Boxes, MapPin, Calculator,
-  ChevronRight, ArrowLeft, Truck, Bell, LogOut, Menu, X,
+  ChevronRight, ArrowLeft, Truck, Bell, LogOut, Menu, X, Play,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { TRUCK_SPECS } from '@/types';
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { to: 'boxes', icon: Package, label: '纸箱与物品' },
   { to: 'scan', icon: QrCode, label: '扫码与AI识别' },
   { to: 'packing', icon: Boxes, label: '3D装箱规划' },
+  { to: 'execution', icon: Play, label: '搬家执行模式' },
   { to: 'route', icon: MapPin, label: '路线与优先级' },
   { to: 'cost', icon: Calculator, label: '费用与保险' },
 ];

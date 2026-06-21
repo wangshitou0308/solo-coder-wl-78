@@ -2,13 +2,30 @@ export type UserRole = 'owner' | 'member' | 'viewer';
 
 export type ProjectStatus = 'planning' | 'packing' | 'moving' | 'completed';
 
-export type BoxStatus = 0 | 1 | 2 | 3; // 0:空箱 1:打包中 2:已封箱 3:已装载
+export type BoxStatus = 0 | 1 | 2 | 3 | 4 | 5; // 0:空箱 1:打包中 2:已封箱 3:已装载 4:运输中 5:已签收
 
-export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'delayed';
+export type TaskStatus = 'pending' | 'pool' | 'in_progress' | 'completed' | 'delayed';
 
-export type TaskType = 'packing' | 'cleaning' | 'disassembly' | 'loading' | 'unloading';
+export type TaskType = 'packing' | 'cleaning' | 'disassembly' | 'loading' | 'unloading' | 'inventory';
 
 export type TruckSpec = 'small' | 'medium' | 'large' | 'extra_large';
+
+export type ActionType =
+  | 'create_project'
+  | 'create_box'
+  | 'add_item'
+  | 'update_item'
+  | 'delete_item'
+  | 'seal_box'
+  | 'load_box'
+  | 'unload_box'
+  | 'sign_box'
+  | 'complete_task'
+  | 'assign_task'
+  | 'claim_task'
+  | 'change_status'
+  | 'add_member'
+  | 'update_project';
 
 export interface Project {
   id: string;
@@ -53,6 +70,13 @@ export interface Room {
   distance_weight: number;
 }
 
+export interface BoxStatusEvent {
+  status: BoxStatus;
+  at: string;
+  by?: string;
+  note?: string;
+}
+
 export interface Box {
   id: string;
   project_id: string;
@@ -74,6 +98,13 @@ export interface Box {
   pos_x?: number;
   pos_y?: number;
   pos_z?: number;
+  loaded_at?: string;
+  loaded_by?: string;
+  unloaded_at?: string;
+  unloaded_by?: string;
+  signed_at?: string;
+  signed_by?: string;
+  status_history?: BoxStatusEvent[];
 }
 
 export interface Item {
@@ -110,11 +141,13 @@ export interface Task {
 export interface MoveRecord {
   id: string;
   project_id: string;
-  action_type: string;
+  action_type: ActionType;
   target_id?: string;
   operator_id?: string;
+  operator_name?: string;
   created_at: string;
   details: string;
+  metadata?: Record<string, any>;
 }
 
 export interface AIPrediction {

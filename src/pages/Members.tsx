@@ -3,9 +3,9 @@ import { useParams } from 'react-router-dom';
 import { useAppStore } from '@/store';
 import {
   UserPlus, Copy, Share2, Crown, Shield, Eye, MoreVertical,
-  CheckCircle, X, QrCode, Sparkles,
+  CheckCircle, X, QrCode, Sparkles, ListTodo, CheckCircle2, Clock, AlertCircle,
 } from 'lucide-react';
-import type { UserRole } from '@/types';
+import type { UserRole, TaskStatus } from '@/types';
 
 const ROLE_INFO: Record<UserRole, { label: string; cls: string; icon: typeof Crown }> = {
   owner: { label: '负责人', cls: 'bg-primary-100 text-primary-700 border-primary-200', icon: Crown },
@@ -17,6 +17,7 @@ export default function Members() {
   const { id = '' } = useParams();
   const project = useAppStore(s => s.projects.find(p => p.id === id));
   const members = useAppStore(s => s.members);
+  const rooms = useAppStore(s => s.rooms);
   const addMember = useAppStore(s => s.addMember);
   const updateMemberRole = useAppStore(s => s.updateMemberRole);
   const removeMember = useAppStore(s => s.removeMember);
@@ -208,6 +209,41 @@ export default function Members() {
                     <span className="text-slate-400">离线</span>
                   )}
                 </div>
+
+                {mt.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-slate-100">
+                    <div className="text-[11px] font-semibold text-slate-500 mb-2 flex items-center gap-1">
+                      <ListTodo className="w-3 h-3" /> 任务分配
+                    </div>
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto scrollbar-thin pr-1">
+                      {mt.map(t => {
+                        const statusMap: Record<TaskStatus, { label: string; icon: typeof CheckCircle2; cls: string }> = {
+                          pending: { label: '待开始', icon: Clock, cls: 'text-slate-500 bg-slate-100' },
+                          pool: { label: '待领取', icon: AlertCircle, cls: 'text-amber-600 bg-amber-50' },
+                          in_progress: { label: '进行中', icon: Clock, cls: 'text-primary-600 bg-primary-50' },
+                          completed: { label: '已完成', icon: CheckCircle2, cls: 'text-success bg-emerald-50' },
+                          delayed: { label: '已延期', icon: AlertCircle, cls: 'text-rose-600 bg-rose-50' },
+                        };
+                        const s = statusMap[t.status];
+                        const SIcon = s.icon;
+                        return (
+                          <div key={t.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50/70 hover:bg-slate-50 transition">
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-medium text-slate-700 truncate">{t.title}</div>
+                              <div className="text-[10px] text-slate-400">
+                                {rooms.find(r => r.id === t.room_id)?.name || '未分配房间'}
+                              </div>
+                            </div>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium flex items-center gap-0.5 ${s.cls}`}>
+                              <SIcon className="w-2.5 h-2.5" />
+                              {s.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

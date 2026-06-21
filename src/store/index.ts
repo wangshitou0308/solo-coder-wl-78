@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { db, generateId, generateProjectCode, generateBoxCode } from '@/db';
 import type {
   Project, Member, Room, Box, Item, Task, AnomalyAlert,
-  TruckSpec, UserRole, BoxStatus,
+  TruckSpec, BoxStatus, MoveRecord, ActionType, UserRole,
 } from '@/types';
 import { TRUCK_SPECS, ROOM_COLORS } from '@/types';
 
@@ -14,7 +14,9 @@ interface AppState {
   boxes: Box[];
   items: Item[];
   tasks: Task[];
+  moveRecords: MoveRecord[];
   currentUserId: string;
+  currentUserName: string;
   alerts: AnomalyAlert[];
   isLoading: boolean;
 
@@ -22,10 +24,13 @@ interface AppState {
   loadProjects: () => Promise<void>;
   setCurrentProject: (id: string | null) => Promise<void>;
   loadProjectData: (projectId: string) => Promise<void>;
+  loadMoveRecords: (projectId: string) => Promise<void>;
 
   createProject: (data: Partial<Project>) => Promise<Project>;
   updateProject: (id: string, data: Partial<Project>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
+  findProjectByCode: (code: string) => Project | undefined;
+  joinProjectByCode: (code: string, memberName: string) => Promise<Project | null>;
 
   addMember: (projectId: string, name: string, role: UserRole) => Promise<void>;
   updateMemberRole: (memberId: string, role: UserRole) => Promise<void>;
@@ -39,14 +44,27 @@ interface AppState {
   updateBox: (id: string, data: Partial<Box>) => Promise<void>;
   deleteBox: (id: string) => Promise<void>;
   findBoxByCode: (code: string) => Box | undefined;
+  updateBoxStatus: (id: string, status: BoxStatus, note?: string) => Promise<void>;
+  confirmBoxLoaded: (id: string) => Promise<void>;
+  confirmBoxUnloaded: (id: string) => Promise<void>;
+  confirmBoxSigned: (id: string) => Promise<void>;
 
   addItem: (boxId: string, data: Partial<Item>) => Promise<void>;
+  addItemsBatch: (boxId: string, itemsData: Partial<Item>[]) => Promise<void>;
   updateItem: (id: string, data: Partial<Item>) => Promise<void>;
   deleteItem: (id: string) => Promise<void>;
   getItemsByBox: (boxId: string) => Item[];
+  searchItems: (query: string) => { items: Item[]; boxes: Box[] };
 
   addTask: (projectId: string, data: Partial<Task>) => Promise<void>;
   updateTask: (id: string, data: Partial<Task>) => Promise<void>;
+  assignTask: (taskId: string, assigneeId: string) => Promise<void>;
+  claimTask: (taskId: string) => Promise<void>;
+  unassignTask: (taskId: string) => Promise<void>;
+  completeTask: (taskId: string) => Promise<void>;
+  deleteTask: (taskId: string) => Promise<void>;
+
+  addMoveRecord: (projectId: string, action: ActionType, details: string, targetId?: string, metadata?: Record<string, unknown>) => Promise<void>;
 
   addAlert: (alert: Omit<AnomalyAlert, 'id' | 'created_at' | 'resolved'>) => void;
   resolveAlert: (id: string) => void;
@@ -62,9 +80,17 @@ interface AppState {
     totalValue: number;
     progress: number;
   };
+
+  getExecutionStats: () => {
+    totalBoxes: number;
+    loadedBoxes: number;
+    unloadedBoxes: number;
+    signedBoxes: number;
+  };
 }
 
 const DEFAULT_USER_ID = 'current-user-local';
+const DEFAULT_USER_NAME = '我';
 
 export const useAppStore = create<AppState>((set, get) => ({
   projects: [],
@@ -74,7 +100,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   boxes: [],
   items: [],
   tasks: [],
+  moveRecords: [],
   currentUserId: DEFAULT_USER_ID,
+  currentUserName: DEFAULT_USER_NAME,
   alerts: [],
   isLoading: false,
 
@@ -107,9 +135,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   setCurrentProject: async (id) => {
     set({ currentProjectId: id });
     if (id) {
-      await get().loadProjectData(id);
+      await Promise.all([
+        get().loadProjectData(id),
+        get().loadMoveRecords(id),
+      ]);
     } else {
-      set({ members: [], rooms: [], boxes: [], items: [], tasks: [], alerts: [] });
+      set({ members: [], rooms: [], boxes: [], items: [], tasks: [], moveRecords: [], alerts: [] });
     }
   },
 
@@ -126,6 +157,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       : [];
     set({ members, rooms, boxes, items, tasks });
     get().checkAnomalies();
+  },
+
+  loadMoveRecords: async (projectId) => {
+    const records = await db.move_records
+      .where('project_id')
+      .equals(projectId)
+      .reverse()
+      .sortBy('created_at');
+    set({ moveRecords: records });
   },
 
   createProject: async (data) => {
@@ -157,7 +197,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const owner: Member = {
       id: generateId('mem_'),
       project_id: project.id,
-      name: '我（项目负责人）',
+      name: DEFAULT_USER_NAME,
       avatar: '👤',
       role: 'owner',
       is_online: true,
@@ -202,7 +242,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const allRooms = await db.rooms.where('project_id').equals(project.id).sortBy('sort_order');
     for (let i = 0; i < 12; i++) {
       const room = allRooms[i % allRooms.length];
-      const boxStatus = (i < 5 ? 2 : i < 9 ? 1 : 0) as BoxStatus;
+      const boxStatus = (i < 3 ? 2 : i < 7 ? 1 : 0) as BoxStatus;
       const weight = 8 + Math.random() * 17;
       const box: Box = {
         id: generateId('box_'),
@@ -220,6 +260,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         notes: '',
         items_count: Math.floor(Math.random() * 10) + 2,
         packed_at: boxStatus >= 2 ? new Date().toISOString() : undefined,
+        status_history: boxStatus >= 2 ? [{ status: 2 as BoxStatus, at: new Date().toISOString(), by: DEFAULT_USER_NAME }] : [],
       };
       await db.boxes.add(box);
     }
@@ -258,31 +299,39 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const now = Date.now();
     const demoTasks = [
-      { title: '主卧衣物打包', type: 'packing' as const, offset: 0, duration: 2, priority: 2 as const, progress: 100 },
-      { title: '客厅家具拆卸', type: 'disassembly' as const, offset: 1, duration: 3, priority: 1 as const, progress: 65 },
-      { title: '厨房易碎品分类', type: 'packing' as const, offset: 2, duration: 2, priority: 3 as const, progress: 40 },
-      { title: '书房书籍整理', type: 'packing' as const, offset: 1, duration: 4, priority: 2 as const, progress: 80 },
-      { title: '家电拍照记录', type: 'packing' as const, offset: 3, duration: 1, priority: 2 as const, progress: 20 },
-      { title: '装车现场调度', type: 'loading' as const, offset: 4, duration: 3, priority: 1 as const, progress: 0 },
+      { title: '主卧衣物打包', type: 'packing' as const, offset: 0, duration: 2, priority: 2 as const, progress: 100, status: 'completed' as const },
+      { title: '客厅家具拆卸', type: 'disassembly' as const, offset: 1, duration: 3, priority: 1 as const, progress: 65, status: 'in_progress' as const },
+      { title: '厨房易碎品分类', type: 'packing' as const, offset: 2, duration: 2, priority: 3 as const, progress: 40, status: 'in_progress' as const },
+      { title: '书房书籍整理', type: 'packing' as const, offset: 1, duration: 4, priority: 2 as const, progress: 80, status: 'in_progress' as const },
+      { title: '家电拍照记录', type: 'packing' as const, offset: 3, duration: 1, priority: 2 as const, progress: 0, status: 'pool' as const },
+      { title: '装车现场调度', type: 'loading' as const, offset: 4, duration: 3, priority: 1 as const, progress: 0, status: 'pool' as const },
     ];
+    const allMembers = await db.members.where('project_id').equals(project.id).toArray();
     for (let i = 0; i < demoTasks.length; i++) {
       const t = demoTasks[i];
       const room = allRooms[i % allRooms.length];
-      const member = (await db.members.where('project_id').equals(project.id).toArray())[i % 4];
+      const member = allMembers[i % allMembers.length];
       const task: Task = {
         id: generateId('task_'),
         project_id: project.id,
         room_id: room.id,
-        assignee_id: member.id,
+        assignee_id: t.status === 'pool' ? undefined : member.id,
         title: t.title,
         type: t.type,
         progress: t.progress,
         start_time: new Date(now + t.offset * 86400000).toISOString(),
         end_time: new Date(now + (t.offset + t.duration) * 86400000).toISOString(),
         priority: t.priority,
-        status: t.progress === 100 ? 'completed' : t.progress > 0 ? 'in_progress' : 'pending',
+        status: t.status,
       };
       await db.tasks.add(task);
+    }
+
+    const initialRecords: MoveRecord[] = [
+      { id: generateId('rec_'), project_id: project.id, action_type: 'create_project', operator_id: DEFAULT_USER_ID, operator_name: DEFAULT_USER_NAME, created_at: project.created_at, details: '创建项目' },
+    ];
+    for (let i = 0; i < Math.min(initialRecords.length, 5); i++) {
+      await db.move_records.add(initialRecords[i]);
     }
 
     await get().loadProjects();
@@ -291,6 +340,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   updateProject: async (id, data) => {
     await db.projects.update(id, data);
+    const project = get().projects.find(p => p.id === id);
+    if (project) {
+      await get().addMoveRecord(id, 'update_project', '更新项目信息');
+    }
     await get().loadProjects();
   },
 
@@ -311,6 +364,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().currentProjectId === id) {
       set({ currentProjectId: null });
     }
+  },
+
+  findProjectByCode: (code) => {
+    return get().projects.find(p => p.project_code.toUpperCase() === code.toUpperCase());
+  },
+
+  joinProjectByCode: async (code, memberName) => {
+    const project = get().findProjectByCode(code);
+    if (!project) return null;
+    await get().addMember(project.id, memberName, 'member');
+    await get().addMoveRecord(project.id, 'add_member', `${memberName} 加入项目`);
+    return project;
   },
 
   addMember: async (projectId, name, role) => {
@@ -385,19 +450,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       is_overweight: false,
       notes: data.notes ?? '',
       items_count: 0,
+      status_history: [{ status: 0 as BoxStatus, at: new Date().toISOString(), by: DEFAULT_USER_NAME }],
     };
     await db.boxes.add(box);
     if (project) {
-      const rec = {
-        id: generateId('rec_'),
-        project_id: projectId,
-        action_type: 'create_box',
-        target_id: box.id,
-        operator_id: DEFAULT_USER_ID,
-        created_at: new Date().toISOString(),
-        details: `创建纸箱 ${box.box_code}`,
-      };
-      await db.move_records.add(rec);
+      await get().addMoveRecord(projectId, 'create_box', `创建纸箱 ${box.box_code}`, box.id);
     }
     await get().loadProjectData(projectId);
     return box;
@@ -425,6 +482,53 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   findBoxByCode: (code) => {
     return get().boxes.find(b => b.box_code.toLowerCase() === code.toLowerCase());
+  },
+
+  updateBoxStatus: async (id, status, note) => {
+    const box = get().boxes.find(b => b.id === id);
+    if (!box) return;
+    let history = box.status_history || [];
+    history = [...history, { status, at: new Date().toISOString(), by: DEFAULT_USER_NAME, note }];
+    const updates: Partial<Box> = { status, status_history: history };
+    if (status >= 2 && !box.packed_at) {
+      updates.packed_at = new Date().toISOString();
+      updates.packed_by = DEFAULT_USER_NAME;
+    }
+    if (status >= 3) {
+      updates.loaded_at = new Date().toISOString();
+      updates.loaded_by = DEFAULT_USER_NAME;
+    }
+    if (status >= 4) {
+      updates.unloaded_at = new Date().toISOString();
+      updates.unloaded_by = DEFAULT_USER_NAME;
+    }
+    if (status >= 5) {
+      updates.signed_at = new Date().toISOString();
+      updates.signed_by = DEFAULT_USER_NAME;
+    }
+    await db.boxes.update(id, updates);
+    const statusName: Record<BoxStatus, string> = {
+      0: '重置为空箱',
+      1: '开始打包',
+      2: '封箱',
+      3: '已装载',
+      4: '运输中',
+      5: '已签收',
+    };
+    await get().addMoveRecord(box.project_id, 'change_status', `${box.box_code} ${statusName[status]}`, box.id);
+    await get().loadProjectData(box.project_id);
+  },
+
+  confirmBoxLoaded: async (id) => {
+    await get().updateBoxStatus(id, 3, '装载确认');
+  },
+
+  confirmBoxUnloaded: async (id) => {
+    await get().updateBoxStatus(id, 4, '卸货确认');
+  },
+
+  confirmBoxSigned: async (id) => {
+    await get().updateBoxStatus(id, 5, '签收确认');
   },
 
   addItem: async (boxId, data) => {
@@ -455,6 +559,42 @@ export const useAppStore = create<AppState>((set, get) => ({
       status: box.status === 0 ? 1 : box.status,
       is_fragile: box.is_fragile || item.is_fragile,
     });
+    await get().addMoveRecord(box.project_id, 'add_item', `${box.box_code} 添加物品 "${item.name}"`, item.id);
+    await get().loadProjectData(box.project_id);
+  },
+
+  addItemsBatch: async (boxId, itemsData) => {
+    const box = get().boxes.find(b => b.id === boxId);
+    if (!box) return;
+    for (const data of itemsData) {
+      const item: Item = {
+        id: generateId('item_'),
+        box_id: boxId,
+        name: data.name || '新物品',
+        category: data.category || 'daily',
+        length_cm: data.length_cm ?? 20,
+        width_cm: data.width_cm ?? 15,
+        height_cm: data.height_cm ?? 10,
+        weight_kg: data.weight_kg ?? 0.5,
+        is_fragile: data.is_fragile ?? false,
+        is_valuable: data.is_valuable ?? false,
+        estimated_value: data.estimated_value ?? 100,
+        photo_url: data.photo_url,
+        ai_confidence: data.ai_confidence,
+        ai_category: data.ai_category,
+      };
+      await db.items.add(item);
+    }
+    const allBoxItems = await db.items.where('box_id').equals(boxId).toArray();
+    const newTotal = allBoxItems.reduce((sum, i) => sum + i.weight_kg, 0);
+    const hasFragile = allBoxItems.some(i => i.is_fragile);
+    await db.boxes.update(boxId, {
+      items_count: allBoxItems.length,
+      weight_kg: Math.round(newTotal * 10) / 10,
+      status: box.status === 0 ? 1 : box.status,
+      is_fragile: hasFragile,
+    });
+    await get().addMoveRecord(box.project_id, 'add_item', `${box.box_code} 批量添加 ${itemsData.length} 件物品`);
     await get().loadProjectData(box.project_id);
   },
 
@@ -463,7 +603,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!item) return;
     await db.items.update(id, data);
     const box = get().boxes.find(b => b.id === item.box_id);
-    if (box) await get().loadProjectData(box.project_id);
+    if (box) {
+      await get().addMoveRecord(box.project_id, 'update_item', `更新物品 "${item.name}" 信息`, item.id);
+      await get().loadProjectData(box.project_id);
+    }
   },
 
   deleteItem: async (id) => {
@@ -477,11 +620,36 @@ export const useAppStore = create<AppState>((set, get) => ({
         items_count: Math.max(0, box.items_count - 1),
         weight_kg: Math.round(remaining.reduce((s, i) => s + i.weight_kg, 0) * 10) / 10,
       });
+      await get().addMoveRecord(box.project_id, 'delete_item', `删除物品 "${item.name}"`, item.id);
       await get().loadProjectData(box.project_id);
     }
   },
 
   getItemsByBox: (boxId) => get().items.filter(i => i.box_id === boxId),
+
+  searchItems: (query) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return { items: [], boxes: [] };
+    const matchedItems = get().items.filter(i =>
+      i.name.toLowerCase().includes(q) ||
+      i.category.toLowerCase().includes(q)
+    );
+    const matchedBoxIds = new Set(matchedItems.map(i => i.box_id));
+    const { boxes, rooms } = get();
+    const roomNames = new Map(rooms.map(r => [r.id, r.name]));
+    const matchedBoxes = boxes.filter(b =>
+      b.box_code.toLowerCase().includes(q) ||
+      (() => {
+        const rn = roomNames.get(b.room_id);
+        return rn?.toLowerCase().includes(q);
+      })()
+    );
+    matchedBoxes.forEach(b => matchedBoxIds.add(b.id));
+    return {
+      items: matchedItems,
+      boxes: boxes.filter(b => matchedBoxIds.has(b.id)),
+    };
+  },
 
   addTask: async (projectId, data) => {
     const now = Date.now();
@@ -496,9 +664,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       start_time: data.start_time || new Date(now).toISOString(),
       end_time: data.end_time || new Date(now + 86400000).toISOString(),
       priority: (data.priority as 1 | 2 | 3) ?? 2,
-      status: data.status ?? 'pending',
+      status: data.status ?? (data.assignee_id ? 'pending' : 'pool'),
     };
     await db.tasks.add(task);
+    await get().addMoveRecord(projectId, 'assign_task', `创建任务 "${task.title}"`, task.id);
     await get().loadProjectData(projectId);
   },
 
@@ -512,6 +681,62 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     await db.tasks.update(id, updates);
     await get().loadProjectData(task.project_id);
+  },
+
+  assignTask: async (taskId, assigneeId) => {
+    const task = get().tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const member = get().members.find(m => m.id === assigneeId);
+    await db.tasks.update(taskId, { assignee_id: assigneeId, status: 'pending' });
+    await get().addMoveRecord(task.project_id, 'assign_task', `分配任务 "${task.title}" 给 ${member?.name || '成员'}`, taskId);
+    await get().loadProjectData(task.project_id);
+  },
+
+  claimTask: async (taskId) => {
+    const task = get().tasks.find(t => t.id === taskId);
+    if (!task) return;
+    await db.tasks.update(taskId, { assignee_id: get().currentUserId, status: 'in_progress', progress: Math.max(task.progress, 1) });
+    await get().addMoveRecord(task.project_id, 'claim_task', `领取任务 "${task.title}"`, taskId);
+    await get().loadProjectData(task.project_id);
+  },
+
+  unassignTask: async (taskId) => {
+    const task = get().tasks.find(t => t.id === taskId);
+    if (!task) return;
+    await db.tasks.update(taskId, { assignee_id: undefined, status: 'pool' });
+    await get().loadProjectData(task.project_id);
+  },
+
+  completeTask: async (taskId) => {
+    const task = get().tasks.find(t => t.id === taskId);
+    if (!task) return;
+    await db.tasks.update(taskId, { progress: 100, status: 'completed' });
+    await get().addMoveRecord(task.project_id, 'complete_task', `完成任务 "${task.title}"`, taskId);
+    await get().loadProjectData(task.project_id);
+  },
+
+  deleteTask: async (taskId) => {
+    const task = get().tasks.find(t => t.id === taskId);
+    if (!task) return;
+    await db.tasks.delete(taskId);
+    await get().loadProjectData(task.project_id);
+  },
+
+  addMoveRecord: async (projectId, action, details, targetId, metadata) => {
+    const rec: MoveRecord = {
+      id: generateId('rec_'),
+      project_id: projectId,
+      action_type: action,
+      target_id: targetId,
+      operator_id: get().currentUserId,
+      operator_name: get().currentUserName,
+      created_at: new Date().toISOString(),
+      details,
+      metadata,
+    };
+    await db.move_records.add(rec);
+    const current = get().moveRecords;
+    set({ moveRecords: [rec, ...current].slice(0, 100) });
   },
 
   addAlert: (alert) => {
@@ -586,7 +811,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const totalValue = items.reduce((s, i) => s + i.estimated_value, 0);
     const totalItems = items.length;
     const progress = totalBoxes > 0
-      ? Math.round((boxes.reduce((s, b) => s + (b.status / 3), 0) / totalBoxes) * 100)
+      ? Math.round((boxes.reduce((s, b) => s + b.status / 5, 0) / totalBoxes) * 100)
       : rooms.length > 0 ? Math.round(rooms.reduce((s, r) => s + r.progress, 0) / rooms.length) : 0;
 
     return {
@@ -595,6 +820,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       totalVolume: Math.round(totalVolume * 100) / 100,
       fragileCount, totalValue: Math.round(totalValue),
       progress,
+    };
+  },
+
+  getExecutionStats: () => {
+    const { boxes } = get();
+    return {
+      totalBoxes: boxes.length,
+      loadedBoxes: boxes.filter(b => b.status >= 3).length,
+      unloadedBoxes: boxes.filter(b => b.status >= 4).length,
+      signedBoxes: boxes.filter(b => b.status >= 5).length,
     };
   },
 }));

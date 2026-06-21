@@ -152,7 +152,7 @@ export function compute3DPacking(
     )
     .map(b => b.id);
 
-  placed.forEach((b, idx) => {
+  placed.forEach((b) => {
     b.load_order = loadSequence.indexOf(b.id) + 1;
   });
 

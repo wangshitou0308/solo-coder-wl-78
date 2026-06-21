@@ -1,11 +1,42 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAppStore } from '@/store';
 import {
   Package, Boxes, Scale, Gem, AlertTriangle, CheckCircle2, Clock,
   User, TrendingUp, AlertCircle, XCircle, ChevronRight, Zap,
+  Plus, ListTodo, Activity, Users, CheckSquare, Calendar,
+  MoreHorizontal, Pencil, X as XIcon, Hash, Crown, Eye,
+  Inbox, UserPlus,
 } from 'lucide-react';
-import type { Room, Task } from '@/types';
+import type { Room, Task, TaskStatus, ActionType } from '@/types';
+
+const TASK_STATUS_LABEL: Record<TaskStatus, { label: string; cls: string }> = {
+  pending: { label: '待办', cls: 'bg-slate-100 text-slate-600 border-slate-200' },
+  pool: { label: '待领取', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  in_progress: { label: '进行中', cls: 'bg-accent-50 text-accent-700 border-accent-200' },
+  completed: { label: '已完成', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  delayed: { label: '已延期', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+};
+
+const ACTION_ICON: Record<ActionType, { icon: typeof Package; cls: string }> = {
+  create_project: { icon: Package, cls: 'bg-primary-100 text-primary-600' },
+  update_project: { icon: Pencil, cls: 'bg-slate-100 text-slate-600' },
+  create_box: { icon: Boxes, cls: 'bg-sky-100 text-sky-600' },
+  add_item: { icon: Package, cls: 'bg-violet-100 text-violet-600' },
+  update_item: { icon: Pencil, cls: 'bg-slate-100 text-slate-600' },
+  delete_item: { icon: XCircle, cls: 'bg-rose-100 text-rose-600' },
+  seal_box: { icon: CheckCircle2, cls: 'bg-primary-100 text-primary-600' },
+  load_box: { icon: Package, cls: 'bg-emerald-100 text-emerald-600' },
+  unload_box: { icon: Package, cls: 'bg-amber-100 text-amber-600' },
+  sign_box: { icon: CheckSquare, cls: 'bg-green-100 text-green-600' },
+  change_status: { icon: CheckCircle2, cls: 'bg-emerald-100 text-emerald-600' },
+  add_member: { icon: UserPlus, cls: 'bg-cyan-100 text-cyan-600' },
+  assign_task: { icon: ListTodo, cls: 'bg-primary-100 text-primary-600' },
+  claim_task: { icon: User, cls: 'bg-accent-100 text-accent-600' },
+  complete_task: { icon: CheckSquare, cls: 'bg-emerald-100 text-emerald-600' },
+};
+
+type TaskTab = 'mine' | 'pool' | 'all';
 
 export default function Dashboard() {
   const { id = '' } = useParams();
@@ -17,6 +48,18 @@ export default function Dashboard() {
   const alerts = useAppStore(s => s.alerts.filter(a => !a.resolved));
   const resolveAlert = useAppStore(s => s.resolveAlert);
   const project = useAppStore(s => s.projects.find(p => p.id === id));
+  const moveRecords = useAppStore(s => s.moveRecords);
+  const currentUserId = useAppStore(s => s.currentUserId);
+  const claimTask = useAppStore(s => s.claimTask);
+  const completeTask = useAppStore(s => s.completeTask);
+  const addTask = useAppStore(s => s.addTask);
+  const assignTask = useAppStore(s => s.assignTask);
+
+  const [taskTab, setTaskTab] = useState<TaskTab>('mine');
+  const [showNewTask, setShowNewTask] = useState(false);
+  const [newTask, setNewTask] = useState({
+    title: '', priority: 2 as 1 | 2 | 3, type: 'packing' as Task['type'], room_id: '', assignee_id: '',
+  });
 
   const ganttData = useMemo(() => {
     const sortedTasks = [...tasks].sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
@@ -45,6 +88,36 @@ export default function Dashboard() {
       return { member: m, total: mt.length, done: mt.filter(t => t.status === 'completed').length };
     });
   }, [members, tasks]);
+
+  const filteredTasks = useMemo(() => {
+    switch (taskTab) {
+      case 'mine':
+        return tasks.filter(t => t.assignee_id === currentUserId && t.status !== 'completed');
+      case 'pool':
+        return tasks.filter(t => t.status === 'pool');
+      case 'all':
+        return tasks;
+    }
+  }, [tasks, taskTab, currentUserId]);
+
+  const taskCount = {
+    mine: tasks.filter(t => t.assignee_id === currentUserId && t.status !== 'completed').length,
+    pool: tasks.filter(t => t.status === 'pool').length,
+    all: tasks.length,
+  };
+
+  const handleCreateTask = async () => {
+    if (!newTask.title.trim()) return;
+    await addTask(id, {
+      title: newTask.title.trim(),
+      priority: newTask.priority,
+      type: newTask.type,
+      room_id: newTask.room_id || undefined,
+      assignee_id: newTask.assignee_id || undefined,
+    });
+    setNewTask({ title: '', priority: 2, type: 'packing', room_id: '', assignee_id: '' });
+    setShowNewTask(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -81,7 +154,7 @@ export default function Dashboard() {
               <h2 className="font-display font-bold text-lg text-slate-900 flex items-center gap-2">
                 <Clock className="w-5 h-5 text-primary-600" /> 打包进度甘特图
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">按房间/任务分组显示，拖拽可调整进度</p>
+              <p className="text-xs text-slate-500 mt-0.5">点击任务条可更新进度</p>
             </div>
             <div className="flex items-center gap-3 text-xs">
               {['待办', '进行中', '已完成'].map((l, i) => (
@@ -189,6 +262,109 @@ export default function Dashboard() {
         </section>
       </div>
 
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <section className="card p-6 xl:col-span-2">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="font-display font-bold text-lg text-slate-900 flex items-center gap-2">
+              <ListTodo className="w-5 h-5 text-primary-600" /> 任务面板
+            </h2>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center bg-slate-100 rounded-xl p-1">
+                {([
+                  { k: 'mine', label: '我的', icon: User, count: taskCount.mine },
+                  { k: 'pool', label: '待办池', icon: Inbox, count: taskCount.pool },
+                  { k: 'all', label: '全部', icon: ListTodo, count: taskCount.all },
+                ] as { k: TaskTab; label: string; icon: typeof User; count: number }[]).map(t => (
+                  <button
+                    key={t.k}
+                    onClick={() => setTaskTab(t.k)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1 transition ${
+                      taskTab === t.k ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+                    }`}
+                  >
+                    <t.icon className="w-3.5 h-3.5" />
+                    {t.label}
+                    {t.count > 0 && <span className={`text-[10px] ${taskTab === t.k ? 'bg-primary-100 text-primary-600' : 'bg-slate-200 text-slate-600'} px-1.5 py-0.5 rounded-full`}>{t.count}</span>}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => setShowNewTask(true)} className="btn-primary !py-1.5 !px-3 text-xs">
+                <Plus className="w-3.5 h-3.5" /> 新建任务
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2 max-h-[520px] overflow-y-auto scrollbar-thin pr-2">
+            {filteredTasks.length === 0 ? (
+              <div className="py-12 text-center">
+                <Inbox className="w-10 h-10 mx-auto text-slate-300 mb-3" />
+                <p className="text-sm text-slate-400">
+                  {taskTab === 'pool' ? '待办池暂无任务，点击右上角分配新任务' : '暂无相关任务'}
+                </p>
+              </div>
+            ) : (
+              filteredTasks.map((task, idx) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  index={idx}
+                  room={rooms.find(r => r.id === task.room_id)}
+                  assignee={members.find(m => m.id === task.assignee_id)}
+                  members={members}
+                  onClaim={() => claimTask(task.id)}
+                  onComplete={() => completeTask(task.id)}
+                  onAssign={(mid) => assignTask(task.id, mid)}
+                />
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="card p-6">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="font-display font-bold text-lg text-slate-900 flex items-center gap-2">
+                <Activity className="w-5 h-5 text-primary-600" /> 项目动态
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">团队操作实时记录</p>
+            </div>
+          </div>
+
+          <div className="relative space-y-0 max-h-[520px] overflow-y-auto scrollbar-thin pr-2">
+            <div className="absolute left-[19px] top-2 bottom-2 w-px bg-slate-100" />
+            {moveRecords.length === 0 ? (
+              <div className="py-12 text-center">
+                <Activity className="w-10 h-10 mx-auto text-slate-300 mb-3" />
+                <p className="text-sm text-slate-400">暂无动态</p>
+              </div>
+            ) : (
+              moveRecords.slice(0, 30).map((r, idx) => {
+                const iconInfo = ACTION_ICON[r.action_type] || { icon: Activity, cls: 'bg-slate-100 text-slate-600' };
+                const Icon = iconInfo.icon;
+                const time = new Date(r.created_at);
+                return (
+                  <div key={r.id} className="relative flex gap-3 py-3 animate-slide-up" style={{ animationDelay: `${idx * 0.03}s` }}>
+                    <div className={`w-9 h-9 shrink-0 rounded-full ${iconInfo.cls} flex items-center justify-center z-10`}>
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs text-slate-700 leading-relaxed">
+                        <span className="font-semibold text-slate-800">{r.operator_name}</span>
+                        <span className="text-slate-500"> </span>
+                        {r.details}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        {time.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <section className="card p-6">
           <h2 className="font-display font-bold text-lg text-slate-900 mb-5 flex items-center gap-2">
@@ -227,7 +403,7 @@ export default function Dashboard() {
 
         <section className="card p-6">
           <h2 className="font-display font-bold text-lg text-slate-900 mb-5 flex items-center gap-2">
-            <User className="w-5 h-5 text-primary-600" /> 成员任务分配
+            <Users className="w-5 h-5 text-primary-600" /> 成员任务分配
           </h2>
           <div className="space-y-4">
             {taskByMember.map(({ member, total, done }, i) => {
@@ -276,6 +452,220 @@ export default function Dashboard() {
           </div>
         </section>
       </div>
+
+      {showNewTask && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 animate-slide-up">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-display text-xl font-bold text-slate-900">新建任务</h3>
+              <button onClick={() => setShowNewTask(false)} className="btn-ghost !p-2">
+                <XIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-slate-700 mb-1.5 block">任务名称</label>
+                <input
+                  className="input"
+                  placeholder="例如：主卧衣物打包"
+                  value={newTask.title}
+                  onChange={e => setNewTask(t => ({ ...t, title: e.target.value }))}
+                  autoFocus
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-slate-700 mb-1.5 block">关联房间</label>
+                  <select
+                    className="input"
+                    value={newTask.room_id}
+                    onChange={e => setNewTask(t => ({ ...t, room_id: e.target.value }))}
+                  >
+                    <option value="">不指定</option>
+                    {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700 mb-1.5 block">分配给</label>
+                  <select
+                    className="input"
+                    value={newTask.assignee_id}
+                    onChange={e => setNewTask(t => ({ ...t, assignee_id: e.target.value }))}
+                  >
+                    <option value="">放入待办池</option>
+                    {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-slate-700 mb-1.5 block">类型</label>
+                  <select
+                    className="input"
+                    value={newTask.type}
+                    onChange={e => setNewTask(t => ({ ...t, type: e.target.value as Task['type'] }))}
+                  >
+                    <option value="packing">打包</option>
+                    <option value="disassembly">拆卸</option>
+                    <option value="loading">装车</option>
+                    <option value="cleaning">清洁</option>
+                    <option value="documentation">文档</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700 mb-1.5 block">优先级</label>
+                  <div className="flex gap-2 h-[42px]">
+                    {([3, 2, 1] as const).map(p => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setNewTask(t => ({ ...t, priority: p }))}
+                        className={`flex-1 rounded-xl border text-sm transition ${
+                          newTask.priority === p
+                            ? p === 1 ? 'border-rose-500 bg-rose-50 text-rose-700'
+                              : p === 2 ? 'border-amber-500 bg-amber-50 text-amber-700'
+                              : 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                            : 'border-slate-200 text-slate-500'
+                        }`}
+                      >
+                        {p === 1 ? '高' : p === 2 ? '中' : '低'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setShowNewTask(false)} className="btn-secondary flex-1">取消</button>
+              <button
+                onClick={handleCreateTask}
+                disabled={!newTask.title.trim()}
+                className="btn-primary flex-1 disabled:opacity-50"
+              >
+                创建任务
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TaskCard({
+  task, room, assignee, members, index, onClaim, onComplete, onAssign,
+}: {
+  task: Task; room?: Room; assignee?: { name: string; avatar: string; id: string };
+  members: { id: string; name: string; avatar: string; role: string }[]; index: number;
+  onClaim: () => void; onComplete: () => void; onAssign: (mid: string) => void;
+}) {
+  const unassignTask = useAppStore(s => s.unassignTask);
+  const [showAssign, setShowAssign] = useState(false);
+  const statusInfo = TASK_STATUS_LABEL[task.status];
+  const priorityLabel = task.priority === 1 ? '高' : task.priority === 2 ? '中' : '低';
+  const priorityCls = task.priority === 1 ? 'text-rose-600 bg-rose-50' : task.priority === 2 ? 'text-amber-600 bg-amber-50' : 'text-emerald-600 bg-emerald-50';
+
+  return (
+    <div
+      className="group relative rounded-xl border border-slate-200 p-4 hover:border-slate-300 hover:shadow-sm transition animate-slide-up"
+      style={{ animationDelay: `${index * 0.03}s` }}
+    >
+      <div className="flex items-start gap-3">
+        <div className="w-1 h-14 rounded-full shrink-0" style={{ background: room?.color || '#cbd5e1' }} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2 mb-1.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-semibold text-slate-800">{task.title}</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${priorityCls}`}>{priorityLabel}优先级</span>
+              <span className={`badge text-[10px] ${statusInfo.cls}`}>{statusInfo.label}</span>
+            </div>
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+              {task.status === 'pool' && (
+                <button
+                  onClick={onClaim}
+                  className="w-7 h-7 rounded-lg bg-primary-50 text-primary-600 hover:bg-primary-100 flex items-center justify-center"
+                  title="领取任务"
+                >
+                  <User className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {task.status !== 'completed' && task.status !== 'pool' && (
+                <button
+                  onClick={onComplete}
+                  className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 flex items-center justify-center"
+                  title="完成任务"
+                >
+                  <CheckSquare className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <button
+                onClick={() => setShowAssign(s => !s)}
+                className="w-7 h-7 rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 flex items-center justify-center"
+                title="重新分配"
+              >
+                <MoreHorizontal className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 text-[11px] text-slate-500 mb-2">
+            {room && (
+              <span className="flex items-center gap-1">
+                <Hash className="w-3 h-3" /> {room.name}
+              </span>
+            )}
+            <span className="flex items-center gap-1">
+              <Calendar className="w-3 h-3" />
+              {new Date(task.start_time).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })} - {new Date(task.end_time).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            {assignee ? (
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">{assignee.avatar}</span>
+                <span className="text-xs text-slate-600">{assignee.name}</span>
+              </div>
+            ) : (
+              <span className="text-xs text-amber-600 flex items-center gap-1">
+                <Inbox className="w-3 h-3" /> 待办池中
+              </span>
+            )}
+            <div className="flex items-center gap-1.5 flex-1 max-w-[120px] ml-3">
+              <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${task.progress >= 100 ? 'bg-success' : 'bg-primary-500'}`}
+                  style={{ width: `${task.progress}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-slate-500 w-8 text-right">{task.progress}%</span>
+            </div>
+          </div>
+          {showAssign && (
+            <div className="mt-3 pt-3 border-t border-slate-100">
+              <div className="text-[11px] text-slate-500 mb-2">重新分配给：</div>
+              <div className="flex flex-wrap gap-1.5">
+                {members.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => { onAssign(m.id); setShowAssign(false); }}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 hover:border-primary-300 hover:bg-primary-50 text-xs transition"
+                  >
+                    <span>{m.avatar}</span>
+                    <span className="text-slate-700">{m.name}</span>
+                  </button>
+                ))}
+                {task.assignee_id && (
+                  <button
+                    onClick={() => { unassignTask(task.id); setShowAssign(false); }}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-200 hover:bg-rose-50 text-xs text-rose-600 transition"
+                  >
+                    <Inbox className="w-3 h-3" /> 放入待办池
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -317,6 +707,7 @@ function GanttRow({
                 <span className="truncate">{assignee.name}</span>
               </>
             )}
+            {!assignee && <span className="text-amber-600">待领取</span>}
           </div>
         </div>
       </div>

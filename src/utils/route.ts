@@ -24,7 +24,6 @@ export function computeRoutePlan(
 
     const heavyCount = roomBoxes.filter(b => b.weight_kg > 20).length;
     const fragileCount = roomBoxes.filter(b => b.is_fragile).length;
-    const totalBoxWeight = roomBoxes.reduce((s, b) => s + b.weight_kg, 0);
 
     let baseTime = roomBoxes.length * 3;
     baseTime += heavyCount * 4;

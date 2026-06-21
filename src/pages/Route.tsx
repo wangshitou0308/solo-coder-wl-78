@@ -4,7 +4,7 @@ import { computeRoutePlan } from '@/utils/route';
 import { TRUCK_SPECS, ROOM_COLORS } from '@/types';
 import type { RouteStop } from '@/types';
 import {
-  MapPin, ArrowRight, Clock, Users, Navigation,
+  ArrowRight, Clock, Users, Navigation,
   Building2, ArrowDownToLine, ArrowUpFromLine,
   ChevronRight, Package, AlertCircle, LocateFixed,
   Timer, Calendar, Route as RouteIcon, TrendingUp,

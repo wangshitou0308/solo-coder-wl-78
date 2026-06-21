@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route as RouterRoute, Navigate } from 'react-router-dom';
-import { useEffect, Suspense, lazy } from 'react';
+import { useEffect, Suspense } from 'react';
 import Home from '@/pages/Home';
 import Dashboard from '@/pages/Dashboard';
 import Members from '@/pages/Members';
@@ -8,6 +8,7 @@ import Scan from '@/pages/Scan';
 import Packing from '@/pages/Packing';
 import RoutePage from '@/pages/Route';
 import Cost from '@/pages/Cost';
+import Execution from '@/pages/Execution';
 import ProjectLayout from '@/components/Layout';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { useAppStore } from '@/store';
@@ -32,8 +33,8 @@ function PageFallback() {
   );
 }
 
-function withErrorBoundary(Component: React.ComponentType<any>, name: string) {
-  return function WrappedComponent(props: any) {
+function withErrorBoundary<P extends object>(Component: React.ComponentType<P>, name: string) {
+  return function WrappedComponent(props: P) {
     return (
       <ErrorBoundary name={name}>
         <Component {...props} />
@@ -49,6 +50,7 @@ const ScanPage = withErrorBoundary(Scan, '扫码识别');
 const PackingPage = withErrorBoundary(Packing, '3D装箱');
 const RoutePageWrapped = withErrorBoundary(RoutePage, '路线规划');
 const CostPage = withErrorBoundary(Cost, '费用预估');
+const ExecutionPage = withErrorBoundary(Execution, '执行模式');
 
 export default function App() {
   return (
@@ -64,6 +66,7 @@ export default function App() {
               <RouterRoute path="boxes" element={<BoxesPage />} />
               <RouterRoute path="scan" element={<ScanPage />} />
               <RouterRoute path="packing" element={<PackingPage />} />
+              <RouterRoute path="execution" element={<ExecutionPage />} />
               <RouterRoute path="route" element={<RoutePageWrapped />} />
               <RouterRoute path="cost" element={<CostPage />} />
             </RouterRoute>
